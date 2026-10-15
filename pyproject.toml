@@ -1,0 +1,41 @@
+[project]
+name = "realtime-stock-prediction"
+version = "0.1.0"
+description = "Real-time stock price trend forecasting with online time-series models over streaming market data."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "uvicorn>=0.29",
+    "websockets>=12",
+    "yfinance>=0.2.40",
+]
+
+[project.scripts]
+stockpred = "stockpred.cli:main"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.13.1",
+    "pytest>=8",
+    "ruff>=0.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stockpred"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

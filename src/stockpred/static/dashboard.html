@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Forecasts</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --border: #e2e5ea;
+    --text: #15181d;
+    --muted: #5d6673;
+    --line: #2d3748;
+    --band: rgba(59, 130, 246, 0.16);
+    --accent: #2563eb;
+    --up: #0f7b45;
+    --up-bg: #e3f5ea;
+    --down: #b42318;
+    --down-bg: #fde8e6;
+    --flat: #5d6673;
+    --flat-bg: #eef0f3;
+    --ok: #12a150;
+    --bad: #d92d20;
+    --grid: rgba(0, 0, 0, 0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1216;
+      --surface: #171b21;
+      --border: #2a3039;
+      --text: #e7eaee;
+      --muted: #98a2b0;
+      --line: #d5dae1;
+      --band: rgba(96, 165, 250, 0.2);
+      --accent: #60a5fa;
+      --up: #4ade80;
+      --up-bg: #12301f;
+      --down: #f87171;
+      --down-bg: #3a1716;
+      --flat: #98a2b0;
+      --flat-bg: #232831;
+      --grid: rgba(255, 255, 255, 0.07);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  .muted { color: var(--muted); }
+  #config { margin: 4px 0 20px; }
+  .status { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); }
+  .dot.bad { background: var(--bad); }
+  #cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .symbol { font-weight: 650; font-size: 16px; }
+  .price { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-weight: 600; font-size: 12px; }
+  .badge.up { color: var(--up); background: var(--up-bg); }
+  .badge.down { color: var(--down); background: var(--down-bg); }
+  .badge.flat { color: var(--flat); background: var(--flat-bg); }
+  .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+  .facts div { min-width: 0; }
+  .label { display: block; font-size: 12px; color: var(--muted); }
+  .value { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .chart { position: relative; height: 200px; }
+  dl.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--border); }
+  dl.metrics dt { font-size: 12px; color: var(--muted); }
+  dl.metrics dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .empty { padding: 40px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 10px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .swatch { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 4px; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Real-Time Stock Prediction</h1>
+    <span class="status"><span class="dot" id="dot"></span><span id="status-text">Connecting…</span></span>
+  </header>
+  <p id="config" class="muted"></p>
+  <main id="cards"><div class="empty" id="empty">Waiting for the first forecasts…</div></main>
+</div>
+
+<template id="card-tpl">
+  <section class="card">
+    <div class="card-head">
+      <span class="symbol"></span>
+      <span class="badge flat">Flat</span>
+    </div>
+    <div class="price">–</div>
+    <div class="facts">
+      <div><span class="label">Forecast vol</span><span class="value vol">–</span></div>
+      <div><span class="label">Band</span><span class="value band">–</span></div>
+      <div><span class="label">Updated</span><span class="value updated">–</span></div>
+    </div>
+    <div class="chart"><canvas></canvas></div>
+    <div class="legend">
+      <span><span class="swatch" style="background: var(--line)"></span>Close</span>
+      <span><span class="swatch" style="background: var(--band); height: 8px"></span>Band (at target time)</span>
+      <span><span class="swatch" style="background: var(--accent)"></span>Latest forecast</span>
+    </div>
+    <dl class="metrics">
+      <div><dt>Direction skill</dt><dd class="m-skill">–</dd></div>
+      <div><dt>Hit rate</dt><dd class="m-hit">–</dd></div>
+      <div><dt>Signal active</dt><dd class="m-active">–</dd></div>
+      <div><dt>Vol skill</dt><dd class="m-vskill">–</dd></div>
+      <div><dt>Band coverage</dt><dd class="m-cov">–</dd></div>
+    </dl>
+  </section>
+</template>
+
+<script>
+const MAX_POINTS = 300;
+const cardsEl = document.getElementById("cards");
+const tpl = document.getElementById("card-tpl");
+const cards = new Map();
+const dirty = new Set();
+let frameQueued = false;
+
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const pct = (v, d = 1) => (v == null ? "–" : `${(v * 100).toFixed(d)}%`);
+const signed = (v, d = 3) => (v == null ? "–" : `${v >= 0 ? "+" : ""}${v.toFixed(d)}`);
+const money = (v) => (v == null ? "–" : v.toFixed(2));
+const timeOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+async function getJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: ${res.status}`);
+  return res.json();
+}
+
+function setStatus(ok, text) {
+  document.getElementById("dot").className = `dot ${ok ? "ok" : "bad"}`;
+  document.getElementById("status-text").textContent = text;
+}
+
+function medianStep(times) {
+  const diffs = [];
+  for (let i = Math.max(1, times.length - 50); i < times.length; i++) diffs.push(times[i] - times[i - 1]);
+  if (!diffs.length) return 60000;
+  diffs.sort((a, b) => a - b);
+  return diffs[Math.floor(diffs.length / 2)] || 60000;
+}
+
+function ensureCard(symbol) {
+  if (cards.has(symbol)) return cards.get(symbol);
+  document.getElementById("empty")?.remove();
+  const el = tpl.content.firstElementChild.cloneNode(true);
+  el.querySelector(".symbol").textContent = symbol;
+  cardsEl.appendChild(el);
+  const tick = { color: css("--muted"), maxTicksLimit: 6 };
+  const grid = { color: css("--grid") };
+  const chart = new Chart(el.querySelector("canvas"), {
+    type: "line",
+    data: {
+      datasets: [
+        { data: [], borderWidth: 0, pointRadius: 0, fill: false, backgroundColor: css("--band") },
+        { data: [], borderWidth: 0, pointRadius: 0, fill: "-1", backgroundColor: css("--band") },
+        { data: [], borderColor: css("--line"), borderWidth: 1.5, pointRadius: 0 },
+        { data: [], borderColor: css("--accent"), borderWidth: 2, borderDash: [4, 3], pointRadius: 2,
+          pointBackgroundColor: css("--accent") },
+      ],
+    },
+    options: {
+      animation: false,
+      parsing: false,
+      maintainAspectRatio: false,
+      interaction: { mode: "nearest", axis: "x", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => new Date(items[0].parsed.x).toLocaleString(),
+            label: (item) => ["Band high", "Band low", "Close", "Forecast"][item.datasetIndex] + `: ${money(item.parsed.y)}`,
+          },
+        },
+      },
+      scales: {
+        x: { type: "linear", ticks: { ...tick, callback: (v) => timeOf(v) }, grid },
+        y: { ticks: tick, grid },
+      },
+    },
+  });
+  const card = { el, chart, forecasts: [] };
+  cards.set(symbol, card);
+  return card;
+}
+
+function addForecasts(symbol, forecasts) {
+  const card = ensureCard(symbol);
+  const prev = card.forecasts[card.forecasts.length - 1];
+  const fresh = prev ? forecasts.filter((f) => Date.parse(f.timestamp) > Date.parse(prev.timestamp)) : forecasts;
+  card.forecasts.push(...fresh);
+  if (card.forecasts.length > MAX_POINTS) card.forecasts.splice(0, card.forecasts.length - MAX_POINTS);
+  dirty.add(symbol);
+  if (!frameQueued) {
+    frameQueued = true;
+    requestAnimationFrame(renderDirty);
+  }
+}
+
+function renderDirty() {
+  frameQueued = false;
+  for (const symbol of dirty) render(cards.get(symbol));
+  dirty.clear();
+}
+
+function render(card) {
+  const fs = card.forecasts;
+  if (!fs.length) return;
+  const last = fs[fs.length - 1];
+  const times = fs.map((f) => Date.parse(f.timestamp));
+  const step = medianStep(times);
+  const banded = fs.filter((f) => f.lower != null);
+  const target = (f) => Date.parse(f.timestamp) + f.horizon * step;
+  const [upper, lower, close, forecast] = card.chart.data.datasets;
+  upper.data = banded.map((f) => ({ x: target(f), y: f.upper }));
+  lower.data = banded.map((f) => ({ x: target(f), y: f.lower }));
+  close.data = fs.map((f, i) => ({ x: times[i], y: f.last_close }));
+  forecast.data = [
+    { x: times[times.length - 1], y: last.last_close },
+    { x: target(last), y: last.predicted_price },
+  ];
+  card.chart.update("none");
+
+  const el = card.el;
+  el.querySelector(".price").textContent = money(last.last_close);
+  const badge = el.querySelector(".badge");
+  const dir = last.signal_active ? last.direction : "flat";
+  badge.className = `badge ${dir}`;
+  badge.textContent = dir === "up" ? `▲ Up ${signed(last.predicted_return * 100, 3)}%`
+    : dir === "down" ? `▼ Down ${signed(last.predicted_return * 100, 3)}%`
+    : "■ Flat (no edge)";
+  badge.title = `Raw model: ${signed(last.raw_predicted_return * 100, 4)}%`;
+  el.querySelector(".vol").textContent = `${pct(last.predicted_volatility, 3)} / ${last.horizon} bar${last.horizon > 1 ? "s" : ""}`;
+  el.querySelector(".band").textContent = last.lower == null ? "calibrating" : `${money(last.lower)}–${money(last.upper)}`;
+  el.querySelector(".updated").textContent = timeOf(Date.parse(last.timestamp));
+}
+
+async function refreshMetrics() {
+  try {
+    const all = await getJSON("/api/metrics");
+    for (const [symbol, m] of Object.entries(all)) {
+      const el = ensureCard(symbol).el;
+      el.querySelector(".m-skill").textContent = signed(m.returns.skill);
+      el.querySelector(".m-hit").textContent = pct(m.returns.directional_accuracy);
+      el.querySelector(".m-active").textContent = pct(m.returns.active_fraction, 0);
+      el.querySelector(".m-vskill").textContent = signed(m.volatility.skill);
+      el.querySelector(".m-cov").textContent = m.volatility.coverage == null ? "–"
+        : `${pct(m.volatility.coverage)} / ${pct(m.volatility.target_coverage, 0)}`;
+    }
+  } catch (err) {
+    console.warn(err);
+  }
+}
+
+async function loadHistory() {
+  const status = await getJSON("/api/status");
+  const refs = status.reference_symbols.length ? ` · reference ${status.reference_symbols.join(", ")}` : "";
+  document.getElementById("config").textContent =
+    `${status.source} · model ${status.model} · horizon ${status.horizon} bar${status.horizon > 1 ? "s" : ""}` +
+    ` · ${pct(status.coverage, 0)} band · gate ${status.gate ? "on" : "off"}${refs}`;
+  for (const symbol of status.symbols) {
+    const card = ensureCard(symbol);
+    card.forecasts = [];
+    addForecasts(symbol, await getJSON(`/api/forecasts/${encodeURIComponent(symbol)}?limit=${MAX_POINTS}`));
+  }
+  return status;
+}
+
+function connect() {
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  ws.onopen = async () => {
+    setStatus(true, "Live");
+    try {
+      const status = await loadHistory();
+      if (status.status !== "running") setStatus(status.status !== "error", `Stream ${status.status}${status.error ? `: ${status.error}` : ""}`);
+    } catch (err) {
+      console.warn(err);
+    }
+    refreshMetrics();
+  };
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === "forecast") addForecasts(msg.forecast.symbol, [msg.forecast]);
+  };
+  ws.onclose = () => {
+    setStatus(false, "Disconnected, retrying…");
+    setTimeout(connect, 2000);
+  };
+}
+
+connect();
+setInterval(refreshMetrics, 5000);
+</script>
+</body>
+</html>
